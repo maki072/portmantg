@@ -1,4 +1,4 @@
-// Package db manages the SQLite database for portmantg.
+﻿// Package db manages the SQLite database for portmantg.
 package db
 
 import (
@@ -57,8 +57,7 @@ func (d *DB) migrate() error {
 	if err != nil {
 		return err
 	}
-	// Migration: add last_ip column if upgrading from older schema.
-	_, _ = d.conn.Exec(`ALTER TABLE users ADD COLUMN last_ip TEXT NOT NULL DEFAULT ''`)
+	_, _ = d.conn.Exec("ALTER TABLE users ADD COLUMN last_ip TEXT NOT NULL DEFAULT ''")
 	return nil
 }
 
@@ -69,8 +68,8 @@ func (d *DB) Close() error { return d.conn.Close() }
 func (d *DB) FindByDeviceID(deviceID string) (*User, error) {
 	u := &User{}
 	err := d.conn.QueryRow(
-		`SELECT port, username, secret, device_id, last_ip, created_at, last_seen
-		 FROM users WHERE device_id = ?`, deviceID,
+		"SELECT port, username, secret, device_id, last_ip, created_at, last_seen FROM users WHERE device_id = ?",
+		deviceID,
 	).Scan(&u.Port, &u.Username, &u.Secret, &u.DeviceID, &u.LastIP, &u.CreatedAt, &u.LastSeen)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -82,8 +81,8 @@ func (d *DB) FindByDeviceID(deviceID string) (*User, error) {
 func (d *DB) FindByPort(port int) (*User, error) {
 	u := &User{}
 	err := d.conn.QueryRow(
-		`SELECT port, username, secret, device_id, last_ip, created_at, last_seen
-		 FROM users WHERE port = ?`, port,
+		"SELECT port, username, secret, device_id, last_ip, created_at, last_seen FROM users WHERE port = ?",
+		port,
 	).Scan(&u.Port, &u.Username, &u.Secret, &u.DeviceID, &u.LastIP, &u.CreatedAt, &u.LastSeen)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -93,12 +92,11 @@ func (d *DB) FindByPort(port int) (*User, error) {
 
 // NextFreePort returns the lowest available port in [start, end], or 0 if none.
 func (d *DB) NextFreePort(start, end int) (int, error) {
-	rows, err := d.conn.Query(`SELECT port FROM users WHERE port BETWEEN ? AND ? ORDER BY port`, start, end)
+	rows, err := d.conn.Query("SELECT port FROM users WHERE port BETWEEN ? AND ? ORDER BY port", start, end)
 	if err != nil {
 		return 0, err
 	}
 	defer rows.Close()
-
 	used := make(map[int]bool)
 	for rows.Next() {
 		var p int
@@ -118,8 +116,7 @@ func (d *DB) NextFreePort(start, end int) (int, error) {
 // CreateUser inserts a new user record.
 func (d *DB) CreateUser(u *User) error {
 	_, err := d.conn.Exec(
-		`INSERT INTO users (port, username, secret, device_id, last_ip, created_at, last_seen)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"INSERT INTO users (port, username, secret, device_id, last_ip, created_at, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?)",
 		u.Port, u.Username, u.Secret, u.DeviceID, u.LastIP, u.CreatedAt, u.LastSeen,
 	)
 	return err
@@ -128,7 +125,7 @@ func (d *DB) CreateUser(u *User) error {
 // TouchLastSeen updates last_seen and last_ip for the given port to now.
 func (d *DB) TouchLastSeen(port int, ip string) error {
 	_, err := d.conn.Exec(
-		`UPDATE users SET last_seen = ?, last_ip = ? WHERE port = ?`,
+		"UPDATE users SET last_seen = ?, last_ip = ? WHERE port = ?",
 		time.Now().UTC(), ip, port,
 	)
 	return err
@@ -136,7 +133,7 @@ func (d *DB) TouchLastSeen(port int, ip string) error {
 
 // DeleteUser removes user by port.
 func (d *DB) DeleteUser(port int) error {
-	_, err := d.conn.Exec(`DELETE FROM users WHERE port = ?`, port)
+	_, err := d.conn.Exec("DELETE FROM users WHERE port = ?", port)
 	return err
 }
 
@@ -144,14 +141,13 @@ func (d *DB) DeleteUser(port int) error {
 func (d *DB) InactiveUsers(olderThan time.Duration) ([]User, error) {
 	cutoff := time.Now().UTC().Add(-olderThan)
 	rows, err := d.conn.Query(
-		`SELECT port, username, secret, device_id, last_ip, created_at, last_seen
-		 FROM users WHERE last_seen < ?`, cutoff,
+		"SELECT port, username, secret, device_id, last_ip, created_at, last_seen FROM users WHERE last_seen < ?",
+		cutoff,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
 	var users []User
 	for rows.Next() {
 		var u User
@@ -166,7 +162,7 @@ func (d *DB) InactiveUsers(olderThan time.Duration) ([]User, error) {
 // GetRateLimit returns the last request time for a device, or zero time if not found.
 func (d *DB) GetRateLimit(deviceID string) (time.Time, error) {
 	var t time.Time
-	err := d.conn.QueryRow(`SELECT last_request FROM rate_limit WHERE device_id = ?`, deviceID).Scan(&t)
+	err := d.conn.QueryRow("SELECT last_request FROM rate_limit WHERE device_id = ?", deviceID).Scan(&t)
 	if err == sql.ErrNoRows {
 		return time.Time{}, nil
 	}
@@ -176,8 +172,7 @@ func (d *DB) GetRateLimit(deviceID string) (time.Time, error) {
 // SetRateLimit upserts the last request time for a device.
 func (d *DB) SetRateLimit(deviceID string) error {
 	_, err := d.conn.Exec(
-		`INSERT INTO rate_limit (device_id, last_request) VALUES (?, ?)
-		 ON CONFLICT(device_id) DO UPDATE SET last_request = excluded.last_request`,
+		"INSERT INTO rate_limit (device_id, last_request) VALUES (?, ?) ON CONFLICT(device_id) DO UPDATE SET last_request = excluded.last_request",
 		deviceID, time.Now().UTC(),
 	)
 	return err
@@ -185,4 +180,27 @@ func (d *DB) SetRateLimit(deviceID string) error {
 
 // AllUsers returns all users ordered by last_seen desc.
 func (d *DB) AllUsers() ([]User, error) {
-	rows, err := 
+	rows, err := d.conn.Query(
+		"SELECT port, username, secret, device_id, last_ip, created_at, last_seen FROM users ORDER BY last_seen DESC",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var users []User
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.Port, &u.Username, &u.Secret, &u.DeviceID, &u.LastIP, &u.CreatedAt, &u.LastSeen); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, nil
+}
+
+// CountUsers returns total number of users.
+func (d *DB) CountUsers() (int, error) {
+	var n int
+	err := d.conn.QueryRow("SELECT COUNT(*) FROM users").Scan(&n)
+	return n, err
+}
