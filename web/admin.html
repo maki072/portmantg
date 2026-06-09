@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>portmantg admin</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 32px 24px;
+    }
+    h1 { font-size: 20px; font-weight: 700; color: #f7fafc; margin-bottom: 4px; }
+    .subtitle { color: #718096; font-size: 13px; margin-bottom: 24px; }
+    .stats {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .stat-card {
+      background: #1a1f2e;
+      border: 1px solid #2d3748;
+      border-radius: 10px;
+      padding: 14px 20px;
+      min-width: 120px;
+    }
+    .stat-label { font-size: 11px; color: #718096; text-transform: uppercase; letter-spacing: 0.06em; }
+    .stat-value { font-size: 28px; font-weight: 700; color: #63b3ed; margin-top: 2px; }
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    input[type=search] {
+      background: #1a1f2e;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      color: #e2e8f0;
+      padding: 8px 14px;
+      font-size: 13px;
+      width: 220px;
+      outline: none;
+    }
+    input[type=search]:focus { border-color: #4a5568; }
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-blue { background: #2196F3; color: #fff; }
+    .btn-red  { background: #c53030; color: #fff; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    .table-wrap {
+      overflow-x: auto;
+      border-radius: 10px;
+      border: 1px solid #2d3748;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      background: #151922;
+      color: #718096;
+      font-weight: 600;
+      text-align: left;
+      padding: 10px 14px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+      cursor: pointer;
+      user-select: none;
+    }
+    thead th:hover { color: #a0aec0; }
+    thead th.sorted { color: #63b3ed; }
+    tbody tr { border-top: 1px solid #1a1f2e; }
+    tbody tr:hover { background: #151922; }
+    td { padding: 10px 14px; color: #a0aec0; vertical-align: middle; }
+    td.port { font-family: monospace; color: #63b3ed; font-weight: 700; font-size: 15px; }
+    td.ip   { font-family: monospace; color: #68d391; }
+    td.time { font-size: 12px; color: #718096; white-space: nowrap; }
+    td.actions { white-space: nowrap; }
+    .badge-new {
+      display: inline-block;
+      background: #276749;
+      color: #68d391;
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      margin-left: 6px;
+      font-weight: 600;
+    }
+    .empty { text-align: center; color: #4a5568; padding: 40px; font-size: 14px; }
+    .msg {
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-bottom: 16px;
+      display: none;
+    }
+    .msg.error { background: #2d1a1a; border: 1px solid #c53030; color: #fc8181; }
+    .msg.ok    { background: #1a2d1e; border: 1px solid #276749; color: #68d391; }
+    .loading { text-align: center; color: #4a5568; padding: 40px; }
+    .spinner {
+      display: inline-block;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-top-color: #63b3ed;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <h1>🛡️ portmantg admin</h1>
+  <p class="subtitle">Proxy users overview</p>
+
+  <div class="stats">
+    <div class="stat-card">
+      <div class="stat-label">Total users</div>
+      <div class="stat-value" id="stat-total">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Active 7d</div>
+      <div class="stat-value" id="stat-active7">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Active 30d</div>
+      <div class="stat-value" id="stat-active30">—</div>
+    </div>
+  </div>
+
+  <div class="msg" id="msg"></div>
+
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Filter by IP or port…" oninput="renderTable()">
+    <button class="btn btn-blue" onclick="loadUsers()">
+      <span class="spinner" id="reload-spin" style="display:none"></span>Reload
+    </button>
+  </div>
+
+  <div class="table-wrap">
+    <table id="users-table">
+      <thead>
+        <tr>
+          <th onclick="sortBy('port')" id="th-port">Port / ID</th>
+          <th onclick="sortBy('last_ip')" id="th-last_ip">Last IP</th>
+          <th onclick="sortBy('last_seen')" id="th-last_seen" class="sorted">Last seen ▼</th>
+          <th onclick="sortBy('created_at')" id="th-created_at">Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="users-body">
+        <tr><td colspan="5" class="loading"><span class="spinner"></span>Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    let allUsers = [];
+    let sortKey = 'last_seen';
+    let sortDir = -1; // -1 = desc
+
+    async function loadUsers() {
+      const spin = document.getElementById('reload-spin');
+      spin.style.display = 'inline-block';
+      try {
+        const r = await fetch('/api/admin/users');
+        if (r.status === 401) {
+          showMsg('error', 'Unauthorized. Set -admin-user and -admin-pass flags and use HTTP basic auth.');
+          document.getElementById('users-body').innerHTML =
+            '<tr><td colspan="5" class="empty">Unauthorized</td></tr>';
+          return;
+        }
+        const d = await r.json();
+        allUsers = d.users || [];
+        updateStats(d.total, allUsers);
+        renderTable();
+      } catch (e) {
+        showMsg('error', 'Failed to load users: ' + e.message);
+      } finally {
+        spin.style.display = 'none';
+      }
+    }
+
+    function updateStats(total, users) {
+      document.getElementById('stat-total').textContent = total;
+      const now = Date.now();
+      const d7 = users.filter(u => now - new Date(u.last_seen) < 7*86400*1000).length;
+      const d30 = users.filter(u => now - new Date(u.last_seen) < 30*86400*1000).length;
+      document.getElementById('stat-active7').textContent = d7;
+      document.getElementById('stat-active30').textContent = d30;
+    }
+
+    function renderTable() {
+      const q = document.getElementById('search').value.toLowerCase();
+      let rows = allUsers.filter(u =>
+        !q || String(u.port).includes(q) || u.last_ip.includes(q)
+      );
+
+      rows.sort((a, b) => {
+        let va = a[sortKey], vb = b[sortKey];
+        if (sortKey === 'port') { va = Number(va); vb = Number(vb); }
+        if (va < vb) return -sortDir;
+        if (va > vb) return sortDir;
+        return 0;
+      });
+
+      const tbody = document.getElementById('users-body');
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">No users found</td></tr>';
+        return;
+      }
+
+      const now = Date.now();
+      tbody.innerHTML = rows.map(u => {
+        const lastSeen = new Date(u.last_seen);
+        const created = new Date(u.created_at);
+        const isNew = now - created < 24*60*60*1000;
+        const age = timeSince(lastSeen);
+        return `<tr>
+          <td class="port">#${u.port}${isNew ? '<span class="badge-new">new</span>' : ''}</td>
+          <td class="ip">${u.last_ip || '<span style="color:#4a5568">—</span>'}</td>
+          <td class="time" title="${lastSeen.toISOString()}">${age}</td>
+          <td class="time" title="${created.toISOString()}">${created.toLocaleDateString('en-GB')}</td>
+          <td class="actions">
+            <a href="${u.link}" target="_blank" class="btn btn-blue btn-sm" style="margin-right:6px">tg://</a>
+            <button class="btn btn-red btn-sm" onclick="deleteUser(${u.port})">Delete</button>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    function sortBy(key) {
+      if (sortKey === key) { sortDir *= -1; }
+      else { sortKey = key; sortDir = -1; }
+      // Update header indicators
+      document.querySelectorAll('thead th').forEach(th => {
+        th.classList.remove('sorted');
+        th.textContent = th.textContent.replace(/ [▲▼]$/, '');
+      });
+      const th = document.getElementById('th-' + key);
+      if (th) {
+        th.classList.add('sorted');
+        th.textContent += sortDir === -1 ? ' ▼' : ' ▲';
+      }
+      renderTable();
+    }
+
+    async function deleteUser(port) {
+      if (!confirm(`Delete proxy for port #${port}? This will remove the iptables rule and telemt user.`)) return;
+      try {
+        const r = await fetch(`/api/admin/delete?port=${port}`, { method: 'DELETE' });
+        const d = await r.json();
+        if (!r.ok) { showMsg('error', d.error || 'Delete failed'); return; }
+        showMsg('ok', `Port #${port} deleted.`);
+        allUsers = allUsers.filter(u => u.port !== port);
+        updateStats(allUsers.length, allUsers);
+        renderTable();
+      } catch (e) {
+        showMsg('error', 'Request failed: ' + e.message);
+      }
+    }
+
+    function showMsg(type, text) {
+      const el = document.getElementById('msg');
+      el.className = 'msg ' + type;
+      el.textContent = text;
+      el.style.display = 'block';
+      setTimeout(() => { el.style.display = 'none'; }, 5000);
+    }
+
+    function timeSince(date) {
+      const secs = Math.floor((Date.now() - date) / 1000);
+      if (secs < 60) return secs + 's ago';
+      if (secs < 3600) return Math.floor(secs/60) + 'm ago';
+      if (secs < 86400) return Math.floor(secs/3600) + 'h ago';
+      return Math.floor(secs/86400) + 'd ago';
+    }
+
+    loadUsers();
+  </script>
+</body>
+</html>

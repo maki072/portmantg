@@ -13,6 +13,8 @@ WorkingDirectory=/opt/portmantg
 #   -target-port  — your MTProxy backend port
 #   -proxy-host   — your public domain name
 #   -sni          — domain for TLS SNI camouflage
+#   -admin-user   — HTTP basic auth username for /api/admin (optional)
+#   -admin-pass   — HTTP basic auth password for /api/admin (optional)
 ExecStart=/opt/portmantg/portmantg \
   -addr=:8080 \
   -db=/var/lib/portmantg/portmantg.db \
@@ -27,6 +29,9 @@ ExecStart=/opt/portmantg/portmantg \
   -rate-limit=5m \
   -inactive-age=720h \
   -cleanup-every=6h
+  # Uncomment to enable admin panel:
+  # -admin-user=admin \
+  # -admin-pass=YOUR_ADMIN_PASSWORD
 
 Restart=on-failure
 RestartSec=5s

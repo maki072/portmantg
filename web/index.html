@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Telegram MTProxy — 2vp.in</title>
+  <title>MTProxy для Telegram</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -22,29 +22,21 @@
       border: 1px solid #2d3748;
       border-radius: 16px;
       padding: 40px 36px;
-      max-width: 480px;
+      max-width: 500px;
       width: 100%;
       text-align: center;
     }
-    .logo {
-      font-size: 48px;
-      margin-bottom: 12px;
-    }
+    .logo { font-size: 48px; margin-bottom: 12px; }
     h1 {
       font-size: 24px;
       font-weight: 700;
       color: #f7fafc;
-      margin-bottom: 8px;
-    }
-    .subtitle {
-      color: #718096;
-      font-size: 14px;
       margin-bottom: 32px;
-      line-height: 1.5;
     }
     .btn {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 8px;
       padding: 14px 28px;
       border-radius: 10px;
@@ -54,52 +46,44 @@
       border: none;
       text-decoration: none;
       transition: opacity 0.15s, transform 0.1s;
+      width: 100%;
     }
     .btn:active { transform: scale(0.97); }
-    .btn-primary {
-      background: #2196F3;
-      color: #fff;
-    }
+    .btn-primary { background: #2196F3; color: #fff; }
     .btn-primary:hover { opacity: 0.9; }
-    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-green {
-      background: #38a169;
-      color: #fff;
-      font-size: 15px;
-    }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .btn-green { background: #38a169; color: #fff; font-size: 15px; }
     .btn-green:hover { opacity: 0.9; }
     .info-box {
       background: #0f1117;
       border: 1px solid #2d3748;
       border-radius: 10px;
       padding: 20px;
-      margin-top: 24px;
+      margin-bottom: 20px;
       text-align: left;
     }
     .info-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 6px 0;
+      padding: 8px 0;
       font-size: 13px;
       border-bottom: 1px solid #1a1f2e;
     }
     .info-row:last-child { border-bottom: none; }
-    .info-label { color: #718096; }
+    .info-label { color: #718096; flex-shrink: 0; margin-right: 12px; }
     .info-value {
       font-family: "SF Mono", "Fira Code", monospace;
       color: #a0aec0;
       font-size: 12px;
       word-break: break-all;
-      max-width: 60%;
       text-align: right;
     }
-    .actions {
-      margin-top: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      align-items: stretch;
+    .info-id {
+      font-size: 20px;
+      font-weight: 700;
+      color: #63b3ed;
+      font-family: "SF Mono", "Fira Code", monospace;
     }
     .msg {
       margin-top: 16px;
@@ -118,24 +102,63 @@
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
       display: none;
+      flex-shrink: 0;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Download buttons */
+    .dl-section {
+      margin-top: 40px;
+      width: 100%;
+      max-width: 500px;
+    }
+    .dl-title {
+      font-size: 12px;
+      color: #4a5568;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 12px;
+    }
+    .dl-row {
+      display: flex;
+      gap: 10px;
+    }
+    .dl-btn {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 14px 12px;
+      border-radius: 10px;
+      background: #1a1f2e;
+      border: 1px solid #2d3748;
+      color: #a0aec0;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .dl-btn:hover { border-color: #4a5568; color: #e2e8f0; }
+    .dl-btn .icon { font-size: 22px; }
+    .dl-btn small { font-size: 11px; font-weight: 400; color: #4a5568; }
+
     footer {
-      margin-top: 32px;
+      margin-top: 24px;
       color: #4a5568;
       font-size: 12px;
     }
-    footer a { color: #718096; text-decoration: none; }
-    footer a:hover { color: #a0aec0; }
+    footer a { color: #4a5568; text-decoration: none; }
+    footer a:hover { color: #718096; }
   </style>
 </head>
 <body>
   <div class="card" id="card">
     <div class="logo">🔒</div>
     <h1>MTProxy для Telegram</h1>
-    <p class="subtitle">Бесплатный персональный прокси. Одно нажатие — и вы в Telegram.</p>
 
-    <!-- Initial state -->
+    <!-- Initial state: no proxy yet -->
     <div id="state-init">
       <button class="btn btn-primary" id="btn-get" onclick="getProxy()">
         <span class="spinner" id="spinner-get"></span>
@@ -147,6 +170,10 @@
     <!-- Has proxy state -->
     <div id="state-proxy" style="display:none">
       <div class="info-box">
+        <div class="info-row">
+          <span class="info-label">Ваш ID</span>
+          <span class="info-value info-id" id="info-id"></span>
+        </div>
         <div class="info-row">
           <span class="info-label">Сервер</span>
           <span class="info-value" id="info-host"></span>
@@ -160,24 +187,37 @@
           <span class="info-value" id="info-secret"></span>
         </div>
       </div>
-      <div class="actions">
-        <a class="btn btn-green" id="btn-add" href="#" target="_blank">
-          ➕ Добавить в Telegram
-        </a>
-      </div>
-      <div class="msg ok" id="msg-proxy" style="display:block">
+      <a class="btn btn-green" id="btn-add" href="#" target="_blank">
+        ➕ Добавить в Telegram
+      </a>
+      <div class="msg ok" id="msg-proxy" style="display:block; margin-top:14px">
         Прокси активен. Порт освобождается через 30 дней неактивности.
       </div>
     </div>
   </div>
 
+  <!-- Download clients -->
+  <div class="dl-section">
+    <div class="dl-title">Скачать Telegram</div>
+    <div class="dl-row">
+      <a class="dl-btn" href="/files/tsetup-x64.exe" download>
+        <span class="icon">🖥️</span>
+        <span>Windows</span>
+        <small>64-bit</small>
+      </a>
+      <a class="dl-btn" href="/files/Telegram.apk" download>
+        <span class="icon">🤖</span>
+        <span>Android</span>
+        <small>APK</small>
+      </a>
+    </div>
+  </div>
+
   <footer>
-    2vp.in · <a href="https://github.com/maki072/portmantg" target="_blank">GitHub</a>
+    <a href="https://github.com/maki072/portmantg" target="_blank">GitHub</a>
   </footer>
 
   <script>
-    const HOST = window.location.hostname || 't.2vp.in';
-
     async function checkStatus() {
       try {
         const r = await fetch('/api/status');
@@ -206,7 +246,9 @@
           return;
         }
         if (r.status === 429) {
-          showMsg(msg, 'warn', `Подождите ${d.retry_after || 300} секунд перед следующим запросом.`);
+          const secs = d.retry_after || 300;
+          const mins = Math.ceil(secs / 60);
+          showMsg(msg, 'warn', `Подождите ${mins} мин. перед следующим запросом.`);
           return;
         }
         showMsg(msg, 'error', d.error || 'Неизвестная ошибка. Попробуйте позже.');
@@ -222,7 +264,8 @@
     function showProxy(d) {
       document.getElementById('state-init').style.display = 'none';
       document.getElementById('state-proxy').style.display = 'block';
-      document.getElementById('info-host').textContent = HOST;
+      document.getElementById('info-id').textContent = '#' + d.port;
+      document.getElementById('info-host').textContent = window.location.hostname;
       document.getElementById('info-port').textContent = d.port;
       document.getElementById('info-secret').textContent = d.secret;
       document.getElementById('btn-add').href = d.link;
@@ -234,7 +277,6 @@
       el.style.display = 'block';
     }
 
-    // Check on load if device already has a proxy.
     checkStatus();
   </script>
 </body>

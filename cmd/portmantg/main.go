@@ -32,6 +32,8 @@ func main() {
 		rateLimit    = flag.Duration("rate-limit", 5*time.Minute, "Cooldown between new proxy requests per device")
 		inactiveAge  = flag.Duration("inactive-age", 30*24*time.Hour, "Free port after this duration of inactivity")
 		cleanupEvery = flag.Duration("cleanup-every", 6*time.Hour, "How often to run the inactivity cleanup")
+		adminUser    = flag.String("admin-user", "", "HTTP basic auth username for /api/admin (empty = disabled)")
+		adminPass    = flag.String("admin-pass", "", "HTTP basic auth password for /api/admin")
 	)
 	flag.Parse()
 
@@ -55,6 +57,8 @@ func main() {
 		RateLimit:    *rateLimit,
 		InactiveAge:  *inactiveAge,
 		DeviceCookie: "device_id",
+		AdminUser:    *adminUser,
+		AdminPass:    *adminPass,
 	}
 	apiHandler := api.New(database, tm, fw, apiCfg)
 

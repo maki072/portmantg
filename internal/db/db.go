@@ -20,6 +20,7 @@ type User struct {
 	Username  string
 	Secret    string
 	DeviceID  string
+	LastIP    string
 	CreatedAt time.Time
 	LastSeen  time.Time
 }
@@ -44,6 +45,7 @@ func (d *DB) migrate() error {
 			username    TEXT    NOT NULL UNIQUE,
 			secret      TEXT    NOT NULL,
 			device_id   TEXT    NOT NULL UNIQUE,
+			last_ip     TEXT    NOT NULL DEFAULT '',
 			created_at  DATETIME NOT NULL,
 			last_seen   DATETIME NOT NULL
 		);
@@ -52,7 +54,12 @@ func (d *DB) migrate() error {
 			last_request DATETIME NOT NULL
 		);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	// Migration: add last_ip column if upgrading from older schema.
+	_, _ = d.conn.Exec(`ALTER TABLE users ADD COLUMN last_ip TEXT NOT NULL DEFAULT ''`)
+	return nil
 }
 
 // Close closes the database connection.
@@ -62,9 +69,9 @@ func (d *DB) Close() error { return d.conn.Close() }
 func (d *DB) FindByDeviceID(deviceID string) (*User, error) {
 	u := &User{}
 	err := d.conn.QueryRow(
-		`SELECT port, username, secret, device_id, created_at, last_seen
+		`SELECT port, username, secret, device_id, last_ip, created_at, last_seen
 		 FROM users WHERE device_id = ?`, deviceID,
-	).Scan(&u.Port, &u.Username, &u.Secret, &u.DeviceID, &u.CreatedAt, &u.LastSeen)
+	).Scan(&u.Port, &u.Username, &u.Secret, &u.DeviceID, &u.LastIP, &u.CreatedAt, &u.LastSeen)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -75,9 +82,9 @@ func (d *DB) FindByDeviceID(deviceID string) (*User, error) {
 func (d *DB) FindByPort(port int) (*User, error) {
 	u := &User{}
 	err := d.conn.QueryRow(
-		`SELECT port, username, secret, device_id, created_at, last_seen
+		`SELECT port, username, secret, device_id, last_ip, created_at, last_seen
 		 FROM users WHERE port = ?`, port,
-	).Scan(&u.Port, &u.Username, &u.Secret, &u.DeviceID, &u.CreatedAt, &u.LastSeen)
+	).Scan(&u.Port, &u.Username, &u.Secret, &u.DeviceID, &u.LastIP, &u.CreatedAt, &u.LastSeen)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -111,16 +118,19 @@ func (d *DB) NextFreePort(start, end int) (int, error) {
 // CreateUser inserts a new user record.
 func (d *DB) CreateUser(u *User) error {
 	_, err := d.conn.Exec(
-		`INSERT INTO users (port, username, secret, device_id, created_at, last_seen)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		u.Port, u.Username, u.Secret, u.DeviceID, u.CreatedAt, u.LastSeen,
+		`INSERT INTO users (port, username, secret, device_id, last_ip, created_at, last_seen)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		u.Port, u.Username, u.Secret, u.DeviceID, u.LastIP, u.CreatedAt, u.LastSeen,
 	)
 	return err
 }
 
-// TouchLastSeen updates last_seen for the given port to now.
-func (d *DB) TouchLastSeen(port int) error {
-	_, err := d.conn.Exec(`UPDATE users SET last_seen = ? WHERE port = ?`, time.Now().UTC(), port)
+// TouchLastSeen updates last_seen and last_ip for the given port to now.
+func (d *DB) TouchLastSeen(port int, ip string) error {
+	_, err := d.conn.Exec(
+		`UPDATE users SET last_seen = ?, last_ip = ? WHERE port = ?`,
+		time.Now().UTC(), ip, port,
+	)
 	return err
 }
 
@@ -134,7 +144,7 @@ func (d *DB) DeleteUser(port int) error {
 func (d *DB) InactiveUsers(olderThan time.Duration) ([]User, error) {
 	cutoff := time.Now().UTC().Add(-olderThan)
 	rows, err := d.conn.Query(
-		`SELECT port, username, secret, device_id, created_at, last_seen
+		`SELECT port, username, secret, device_id, last_ip, created_at, last_seen
 		 FROM users WHERE last_seen < ?`, cutoff,
 	)
 	if err != nil {
@@ -145,7 +155,7 @@ func (d *DB) InactiveUsers(olderThan time.Duration) ([]User, error) {
 	var users []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.Port, &u.Username, &u.Secret, &u.DeviceID, &u.CreatedAt, &u.LastSeen); err != nil {
+		if err := rows.Scan(&u.Port, &u.Username, &u.Secret, &u.DeviceID, &u.LastIP, &u.CreatedAt, &u.LastSeen); err != nil {
 			return nil, err
 		}
 		users = append(users, u)
@@ -173,10 +183,11 @@ func (d *DB) SetRateLimit(deviceID string) error {
 	return err
 }
 
-// AllUsers returns all users.
+// AllUsers returns all users ordered by last_seen desc.
 func (d *DB) AllUsers() ([]User, error) {
 	rows, err := d.conn.Query(
-		`SELECT port, username, secret, device_id, created_at, last_seen FROM users ORDER BY port`,
+		`SELECT port, username, secret, device_id, last_ip, created_at, last_seen
+		 FROM users ORDER BY last_seen DESC`,
 	)
 	if err != nil {
 		return nil, err
@@ -185,10 +196,17 @@ func (d *DB) AllUsers() ([]User, error) {
 	var users []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.Port, &u.Username, &u.Secret, &u.DeviceID, &u.CreatedAt, &u.LastSeen); err != nil {
+		if err := rows.Scan(&u.Port, &u.Username, &u.Secret, &u.DeviceID, &u.LastIP, &u.CreatedAt, &u.LastSeen); err != nil {
 			return nil, err
 		}
 		users = append(users, u)
 	}
 	return users, nil
+}
+
+// CountUsers returns total number of users.
+func (d *DB) CountUsers() (int, error) {
+	var n int
+	err := d.conn.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
+	return n, err
 }

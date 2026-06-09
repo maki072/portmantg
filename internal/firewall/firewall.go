@@ -8,8 +8,8 @@ import (
 
 // Manager manages iptables DNAT rules for telemt ports.
 type Manager struct {
-	targetIP   string // g.hog.cx IP
-	targetPort int    // telemt port (8444)
+	targetIP   string // MTProxy backend IP
+	targetPort int    // MTProxy backend port
 }
 
 // New creates a new firewall manager.

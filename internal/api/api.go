@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
@@ -19,11 +20,13 @@ import (
 type Config struct {
 	PortStart    int
 	PortEnd      int
-	SNIDomain    string // domain embedded in TLS secret (e.g. "ad.2vp.in")
-	ProxyHost    string // public hostname for proxy links (e.g. "t.2vp.in")
+	SNIDomain    string // domain embedded in TLS secret for SNI camouflage
+	ProxyHost    string // public hostname used in proxy links
 	RateLimit    time.Duration
 	InactiveAge  time.Duration
 	DeviceCookie string
+	AdminUser    string // HTTP basic auth username for /api/admin (empty = no auth)
+	AdminPass    string // HTTP basic auth password for /api/admin
 }
 
 // Handler is the main HTTP handler.
@@ -49,6 +52,8 @@ func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/proxy", h.handleProxy)
 	mux.HandleFunc("/api/status", h.handleStatus)
+	mux.HandleFunc("/api/admin/users", h.basicAuth(h.handleAdminUsers))
+	mux.HandleFunc("/api/admin/delete", h.basicAuth(h.handleAdminDelete))
 	return mux
 }
 
@@ -90,7 +95,7 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	if user != nil {
 		// Touch last seen and return existing proxy.
-		_ = h.db.TouchLastSeen(user.Port)
+		_ = h.db.TouchLastSeen(user.Port, realIP(r))
 		jsonResponse(w, http.StatusOK, proxyResponse{
 			Port:    user.Port,
 			Secret:  user.Secret,
@@ -143,6 +148,7 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request) {
 		Username:  username,
 		Secret:    secret,
 		DeviceID:  deviceID,
+		LastIP:    realIP(r),
 		CreatedAt: now,
 		LastSeen:  now,
 	}
@@ -260,4 +266,116 @@ func generateDeviceID() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
+
+// realIP extracts the real client IP from X-Forwarded-For or RemoteAddr.
+func realIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first (leftmost) IP in the chain.
+		if idx := len(xff); idx > 0 {
+			for i, c := range xff {
+				if c == ',' {
+					return xff[:i]
+				}
+			}
+			return xff
+		}
+	}
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return xri
+	}
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
+}
+
+// basicAuth wraps a handler with HTTP basic auth if AdminUser is configured.
+func (h *Handler) basicAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.cfg.AdminUser != "" {
+			user, pass, ok := r.BasicAuth()
+			if !ok || user != h.cfg.AdminUser || pass != h.cfg.AdminPass {
+				w.Header().Set("WWW-Authenticate", `Basic realm="portmantg admin"`)
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		next(w, r)
+	}
+}
+
+type adminUserRow struct {
+	Port      int    `json:"port"`
+	Username  string `json:"username"`
+	LastIP    string `json:"last_ip"`
+	CreatedAt string `json:"created_at"`
+	LastSeen  string `json:"last_seen"`
+	Link      string `json:"link"`
+}
+
+// handleAdminUsers handles GET /api/admin/users
+// Returns all users with IP and activity info.
+func (h *Handler) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, errorResponse{Error: "method not allowed"})
+		return
+	}
+	users, err := h.db.AllUsers()
+	if err != nil {
+		log.Printf("[admin] AllUsers: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, errorResponse{Error: "internal error"})
+		return
+	}
+	rows := make([]adminUserRow, 0, len(users))
+	for _, u := range users {
+		rows = append(rows, adminUserRow{
+			Port:      u.Port,
+			Username:  u.Username,
+			LastIP:    u.LastIP,
+			CreatedAt: u.CreatedAt.Format(time.RFC3339),
+			LastSeen:  u.LastSeen.Format(time.RFC3339),
+			Link:      h.buildLink(u.Port, u.Secret),
+		})
+	}
+	total, _ := h.db.CountUsers()
+	jsonResponse(w, http.StatusOK, map[string]any{
+		"total": total,
+		"users": rows,
+	})
+}
+
+// handleAdminDelete handles DELETE /api/admin/delete?port=NNN
+// Removes a user by port.
+func (h *Handler) handleAdminDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete && r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, errorResponse{Error: "method not allowed"})
+		return
+	}
+	var port int
+	if _, err := fmt.Sscanf(r.URL.Query().Get("port"), "%d", &port); err != nil || port == 0 {
+		jsonResponse(w, http.StatusBadRequest, errorResponse{Error: "invalid port"})
+		return
+	}
+	user, err := h.db.FindByPort(port)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, errorResponse{Error: "internal error"})
+		return
+	}
+	if user == nil {
+		jsonResponse(w, http.StatusNotFound, errorResponse{Error: "user not found"})
+		return
+	}
+	if err := h.telemt.DeleteUser(user.Username); err != nil {
+		log.Printf("[admin] telemt.DeleteUser %s: %v", user.Username, err)
+	}
+	h.firewall.RemovePort(port)
+	if err := h.db.DeleteUser(port); err != nil {
+		log.Printf("[admin] db.DeleteUser port=%d: %v", port, err)
+		jsonResponse(w, http.StatusInternalServerError, errorResponse{Error: "internal error"})
+		return
+	}
+	log.Printf("[admin] deleted user port=%d username=%s", port, user.Username)
+	jsonResponse(w, http.StatusOK, map[string]any{"ok": true, "port": port})
 }
