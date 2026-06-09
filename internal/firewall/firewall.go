@@ -1,4 +1,4 @@
-﻿// Package firewall manages iptables rules for per-user port DNAT.
+// Package firewall manages iptables rules for per-user port DNAT.
 package firewall
 
 import (

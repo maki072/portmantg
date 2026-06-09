@@ -1,4 +1,4 @@
-﻿// Command portmantg runs the Telegram proxy distribution service.
+// Command portmantg runs the Telegram proxy distribution service.
 package main
 
 import (
@@ -42,18 +42,15 @@ func main() {
 	)
 	flag.Parse()
 
-	// Open main database.
 	database, err := db.Open(*dbPath)
 	if err != nil {
 		log.Fatalf("open db %s: %v", *dbPath, err)
 	}
 	defer database.Close()
 
-	// Build clients.
 	tm := telemt.New(*telemtURL)
 	fw := firewall.New(*targetIP, *targetPort)
 
-	// Build API handler.
 	apiCfg := api.Config{
 		PortStart:       *portStart,
 		PortEnd:         *portEnd,
@@ -70,11 +67,9 @@ func main() {
 	}
 	apiHandler := api.New(database, tm, fw, apiCfg)
 
-	// Build HTTP mux: API + static files.
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiHandler.Routes())
 
-	// Serve static web files.
 	if *webDir != "" {
 		if _, err := os.Stat(*webDir); err == nil {
 			mux.Handle("/", http.FileServer(http.Dir(*webDir)))
@@ -91,12 +86,10 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Start inactivity cleanup goroutine.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go runCleanup(ctx, database, tm, fw, *inactiveAge, *cleanupEvery)
 
-	// Start server.
 	go func() {
 		log.Printf("[main] listening on %s", *addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -104,7 +97,6 @@ func main() {
 		}
 	}()
 
-	// Wait for signal.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
@@ -118,7 +110,6 @@ func main() {
 	log.Println("[main] stopped")
 }
 
-// runCleanup periodically removes inactive users.
 func runCleanup(ctx context.Context, database *db.DB, tm *telemt.Client, fw *firewall.Manager, age, every time.Duration) {
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()

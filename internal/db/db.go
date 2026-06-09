@@ -1,4 +1,4 @@
-﻿// Package db manages the SQLite database for portmantg.
+// Package db manages the SQLite database for portmantg.
 package db
 
 import (
