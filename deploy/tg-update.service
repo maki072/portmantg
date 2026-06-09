@@ -1,0 +1,11 @@
+[Unit]
+Description=Telegram client auto-updater
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/tg-update.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tg-update

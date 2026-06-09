@@ -300,6 +300,54 @@ case "$WEB_SERVER" in
   *)      warn "Unknown web server '$WEB_SERVER' — skipping. Use nginx, angie, caddy, or none." ;;
 esac
 
+# ── TG client auto-updater ───────────────────────────────────────────────────
+echo
+echo "  Telegram client auto-updater"
+echo "  ───────────────────────────────────────"
+prompt INSTALL_TG_UPDATE "Install tg-update timer (daily download of TG clients for /files/)? [y/N]" "y"
+
+if [[ "${INSTALL_TG_UPDATE,,}" =~ ^y ]]; then
+  TG_UPDATE_SCRIPT_URL="https://raw.githubusercontent.com/$REPO/master/deploy/tg-update.sh"
+  info "Downloading tg-update.sh..."
+  curl -fsSL "$TG_UPDATE_SCRIPT_URL" -o /usr/local/bin/tg-update.sh \
+    || warn "Failed to download tg-update.sh — skipping"
+  chmod +x /usr/local/bin/tg-update.sh
+
+  cat > /etc/systemd/system/tg-update.service << 'UNIT'
+[Unit]
+Description=Telegram client auto-updater
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/tg-update.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tg-update
+UNIT
+
+  cat > /etc/systemd/system/tg-update.timer << 'UNIT'
+[Unit]
+Description=Run Telegram client updater daily
+Requires=tg-update.service
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 UTC
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+
+  mkdir -p /var/www/tgpage/files
+  systemctl daemon-reload
+  systemctl enable --now tg-update.timer
+  success "tg-update timer installed (daily at 04:00 UTC)"
+  info "Run now: systemctl start tg-update.service"
+fi
+
 # ── Done ─────────────────────────────────────────────────────────────────────
 echo
 echo "  ───────────────────────────────────────"
