@@ -1,4 +1,4 @@
-[Unit]
+﻿[Unit]
 Description=portmantg - Telegram MTProxy distribution service
 After=network.target
 
@@ -8,15 +8,14 @@ User=root
 WorkingDirectory=/opt/portmantg
 
 # Edit these values for your setup:
-#   -telemt-url        — your MTProxy backend API address
-#   -target-ip         — your MTProxy backend IP
-#   -target-port       — your MTProxy backend port
-#   -proxy-host        — your public domain name
-#   -sni               — domain for TLS SNI camouflage
-#   -admin-user        — HTTP basic auth username for /api/admin (optional)
-#   -admin-pass        — HTTP basic auth password for /api/admin (optional)
-#   -turnstile-secret  — Cloudflare Turnstile secret key (optional, enables captcha)
-#   -rst-monitor       — enable embedded RST/TSPU block monitor (optional)
+#   -telemt-url        -- your MTProxy backend API address
+#   -target-ip         -- your MTProxy backend IP
+#   -target-port       -- your MTProxy backend port
+#   -proxy-host        -- your public domain name
+#   -sni               -- domain for TLS SNI camouflage
+#   -admin-user        -- HTTP basic auth username for /api/admin (optional)
+#   -admin-pass        -- HTTP basic auth password for /api/admin (optional)
+#   -turnstile-secret  -- Cloudflare Turnstile secret key (optional, enables captcha)
 ExecStart=/opt/portmantg/portmantg \
   -addr=:8080 \
   -db=/var/lib/portmantg/portmantg.db \
@@ -37,14 +36,11 @@ ExecStart=/opt/portmantg/portmantg \
   # -admin-user=admin \
   # -admin-pass=YOUR_ADMIN_PASSWORD \
   # Uncomment to enable Cloudflare Turnstile captcha:
-  # -turnstile-secret=YOUR_CF_TURNSTILE_SECRET \
-  # Uncomment to enable RST/TSPU block monitor:
-  # -rst-monitor
+  # -turnstile-secret=YOUR_CF_TURNSTILE_SECRET
 
 Restart=on-failure
 RestartSec=5s
 
-# Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=portmantg
