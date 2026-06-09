@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MTProxy для Telegram</title>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -151,6 +152,21 @@
     }
     footer a { color: #4a5568; text-decoration: none; }
     footer a:hover { color: #718096; }
+    .admin-link {
+      margin-top: 8px;
+      display: block;
+      font-size: 11px;
+      color: #2d3748;
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .admin-link:hover { color: #4a5568; }
+    /* Hide turnstile widget visually until needed */
+    #turnstile-wrap {
+      margin-top: 16px;
+      display: none;
+      justify-content: center;
+    }
   </style>
 </head>
 <body>
@@ -160,10 +176,20 @@
 
     <!-- Initial state: no proxy yet -->
     <div id="state-init">
-      <button class="btn btn-primary" id="btn-get" onclick="getProxy()">
+      <button class="btn btn-primary" id="btn-get" onclick="requestProxy()">
         <span class="spinner" id="spinner-get"></span>
         <span id="btn-get-text">Получить прокси</span>
       </button>
+      <!-- CF Turnstile widget (shown on click) -->
+      <div id="turnstile-wrap">
+        <div class="cf-turnstile"
+             data-sitekey="0x4AAAAAADhVjA1F1XX4zay1"
+             data-theme="dark"
+             data-callback="onTurnstileSuccess"
+             data-error-callback="onTurnstileError"
+             data-size="normal">
+        </div>
+      </div>
       <div class="msg" id="msg-init"></div>
     </div>
 
@@ -214,70 +240,4 @@
   </div>
 
   <footer>
-    <a href="https://github.com/maki072/portmantg" target="_blank">GitHub</a>
-  </footer>
-
-  <script>
-    async function checkStatus() {
-      try {
-        const r = await fetch('/api/status');
-        const d = await r.json();
-        if (d.has_proxy) showProxy(d);
-      } catch (e) { /* ignore */ }
-    }
-
-    async function getProxy() {
-      const btn = document.getElementById('btn-get');
-      const txt = document.getElementById('btn-get-text');
-      const spin = document.getElementById('spinner-get');
-      const msg = document.getElementById('msg-init');
-
-      btn.disabled = true;
-      spin.style.display = 'inline-block';
-      txt.textContent = 'Создаём прокси…';
-      msg.style.display = 'none';
-
-      try {
-        const r = await fetch('/api/proxy');
-        const d = await r.json();
-
-        if (r.status === 200 || r.status === 201) {
-          showProxy(d);
-          return;
-        }
-        if (r.status === 429) {
-          const secs = d.retry_after || 300;
-          const mins = Math.ceil(secs / 60);
-          showMsg(msg, 'warn', `Подождите ${mins} мин. перед следующим запросом.`);
-          return;
-        }
-        showMsg(msg, 'error', d.error || 'Неизвестная ошибка. Попробуйте позже.');
-      } catch (e) {
-        showMsg(msg, 'error', 'Нет соединения с сервером.');
-      } finally {
-        btn.disabled = false;
-        spin.style.display = 'none';
-        txt.textContent = 'Получить прокси';
-      }
-    }
-
-    function showProxy(d) {
-      document.getElementById('state-init').style.display = 'none';
-      document.getElementById('state-proxy').style.display = 'block';
-      document.getElementById('info-id').textContent = '#' + d.port;
-      document.getElementById('info-host').textContent = window.location.hostname;
-      document.getElementById('info-port').textContent = d.port;
-      document.getElementById('info-secret').textContent = d.secret;
-      document.getElementById('btn-add').href = d.link;
-    }
-
-    function showMsg(el, type, text) {
-      el.className = 'msg ' + type;
-      el.textContent = text;
-      el.style.display = 'block';
-    }
-
-    checkStatus();
-  </script>
-</body>
-</html>
+    <a href="https://github.com/maki072

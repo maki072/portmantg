@@ -185,28 +185,4 @@ func (d *DB) SetRateLimit(deviceID string) error {
 
 // AllUsers returns all users ordered by last_seen desc.
 func (d *DB) AllUsers() ([]User, error) {
-	rows, err := d.conn.Query(
-		`SELECT port, username, secret, device_id, last_ip, created_at, last_seen
-		 FROM users ORDER BY last_seen DESC`,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var users []User
-	for rows.Next() {
-		var u User
-		if err := rows.Scan(&u.Port, &u.Username, &u.Secret, &u.DeviceID, &u.LastIP, &u.CreatedAt, &u.LastSeen); err != nil {
-			return nil, err
-		}
-		users = append(users, u)
-	}
-	return users, nil
-}
-
-// CountUsers returns total number of users.
-func (d *DB) CountUsers() (int, error) {
-	var n int
-	err := d.conn.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
-	return n, err
-}
+	rows, err := 

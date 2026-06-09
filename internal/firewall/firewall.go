@@ -97,5 +97,4 @@ func (m *Manager) RemovePort(port int) {
 		port,
 	))
 
-	runIgnoreErr("netfilter-persistent", "save")
-}
+	runIgnoreErr("netfilter-persistent", "
