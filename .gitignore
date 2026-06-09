@@ -1,0 +1,33 @@
+# Binaries
+/portmantg
+*.exe
+
+# Environment / secrets
+.env
+*.env
+config.local.*
+secrets.*
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+
+# SSH keys
+id_*
+*.pem
+*.key
+
+# Build artifacts
+/dist/
+/build/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db

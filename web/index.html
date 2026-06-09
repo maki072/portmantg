@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Telegram MTProxy — 2vp.in</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: #1a1f2e;
+      border: 1px solid #2d3748;
+      border-radius: 16px;
+      padding: 40px 36px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    .logo {
+      font-size: 48px;
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      color: #f7fafc;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      color: #718096;
+      font-size: 14px;
+      margin-bottom: 32px;
+      line-height: 1.5;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 28px;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      text-decoration: none;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary {
+      background: #2196F3;
+      color: #fff;
+    }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-green {
+      background: #38a169;
+      color: #fff;
+      font-size: 15px;
+    }
+    .btn-green:hover { opacity: 0.9; }
+    .info-box {
+      background: #0f1117;
+      border: 1px solid #2d3748;
+      border-radius: 10px;
+      padding: 20px;
+      margin-top: 24px;
+      text-align: left;
+    }
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+      font-size: 13px;
+      border-bottom: 1px solid #1a1f2e;
+    }
+    .info-row:last-child { border-bottom: none; }
+    .info-label { color: #718096; }
+    .info-value {
+      font-family: "SF Mono", "Fira Code", monospace;
+      color: #a0aec0;
+      font-size: 12px;
+      word-break: break-all;
+      max-width: 60%;
+      text-align: right;
+    }
+    .actions {
+      margin-top: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      align-items: stretch;
+    }
+    .msg {
+      margin-top: 16px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      display: none;
+    }
+    .msg.error { background: #2d1a1a; border: 1px solid #c53030; color: #fc8181; }
+    .msg.warn  { background: #2d2a1a; border: 1px solid #b7791f; color: #fbd38d; }
+    .msg.ok    { background: #1a2d1e; border: 1px solid #276749; color: #68d391; }
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    footer {
+      margin-top: 32px;
+      color: #4a5568;
+      font-size: 12px;
+    }
+    footer a { color: #718096; text-decoration: none; }
+    footer a:hover { color: #a0aec0; }
+  </style>
+</head>
+<body>
+  <div class="card" id="card">
+    <div class="logo">🔒</div>
+    <h1>MTProxy для Telegram</h1>
+    <p class="subtitle">Бесплатный персональный прокси. Одно нажатие — и вы в Telegram.</p>
+
+    <!-- Initial state -->
+    <div id="state-init">
+      <button class="btn btn-primary" id="btn-get" onclick="getProxy()">
+        <span class="spinner" id="spinner-get"></span>
+        <span id="btn-get-text">Получить прокси</span>
+      </button>
+      <div class="msg" id="msg-init"></div>
+    </div>
+
+    <!-- Has proxy state -->
+    <div id="state-proxy" style="display:none">
+      <div class="info-box">
+        <div class="info-row">
+          <span class="info-label">Сервер</span>
+          <span class="info-value" id="info-host"></span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Порт</span>
+          <span class="info-value" id="info-port"></span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Секрет</span>
+          <span class="info-value" id="info-secret"></span>
+        </div>
+      </div>
+      <div class="actions">
+        <a class="btn btn-green" id="btn-add" href="#" target="_blank">
+          ➕ Добавить в Telegram
+        </a>
+      </div>
+      <div class="msg ok" id="msg-proxy" style="display:block">
+        Прокси активен. Порт освобождается через 30 дней неактивности.
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    2vp.in · <a href="https://github.com/maki072/portmantg" target="_blank">GitHub</a>
+  </footer>
+
+  <script>
+    const HOST = window.location.hostname || 't.2vp.in';
+
+    async function checkStatus() {
+      try {
+        const r = await fetch('/api/status');
+        const d = await r.json();
+        if (d.has_proxy) showProxy(d);
+      } catch (e) { /* ignore */ }
+    }
+
+    async function getProxy() {
+      const btn = document.getElementById('btn-get');
+      const txt = document.getElementById('btn-get-text');
+      const spin = document.getElementById('spinner-get');
+      const msg = document.getElementById('msg-init');
+
+      btn.disabled = true;
+      spin.style.display = 'inline-block';
+      txt.textContent = 'Создаём прокси…';
+      msg.style.display = 'none';
+
+      try {
+        const r = await fetch('/api/proxy');
+        const d = await r.json();
+
+        if (r.status === 200 || r.status === 201) {
+          showProxy(d);
+          return;
+        }
+        if (r.status === 429) {
+          showMsg(msg, 'warn', `Подождите ${d.retry_after || 300} секунд перед следующим запросом.`);
+          return;
+        }
+        showMsg(msg, 'error', d.error || 'Неизвестная ошибка. Попробуйте позже.');
+      } catch (e) {
+        showMsg(msg, 'error', 'Нет соединения с сервером.');
+      } finally {
+        btn.disabled = false;
+        spin.style.display = 'none';
+        txt.textContent = 'Получить прокси';
+      }
+    }
+
+    function showProxy(d) {
+      document.getElementById('state-init').style.display = 'none';
+      document.getElementById('state-proxy').style.display = 'block';
+      document.getElementById('info-host').textContent = HOST;
+      document.getElementById('info-port').textContent = d.port;
+      document.getElementById('info-secret').textContent = d.secret;
+      document.getElementById('btn-add').href = d.link;
+    }
+
+    function showMsg(el, type, text) {
+      el.className = 'msg ' + type;
+      el.textContent = text;
+      el.style.display = 'block';
+    }
+
+    // Check on load if device already has a proxy.
+    checkStatus();
+  </script>
+</body>
+</html>

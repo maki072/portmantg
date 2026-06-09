@@ -1,0 +1,40 @@
+[Unit]
+Description=portmantg - Telegram MTProxy distribution service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/portmantg
+
+# Edit these values for your setup:
+#   -telemt-url   — your MTProxy backend API address
+#   -target-ip    — your MTProxy backend IP
+#   -target-port  — your MTProxy backend port
+#   -proxy-host   — your public domain name
+#   -sni          — domain for TLS SNI camouflage
+ExecStart=/opt/portmantg/portmantg \
+  -addr=:8080 \
+  -db=/var/lib/portmantg/portmantg.db \
+  -web=/opt/portmantg/web \
+  -telemt-url=http://127.0.0.1:9091 \
+  -target-ip=YOUR_MTPROXY_IP \
+  -target-port=8444 \
+  -port-start=1000 \
+  -port-end=3000 \
+  -proxy-host=YOUR_DOMAIN \
+  -sni=YOUR_SNI_DOMAIN \
+  -rate-limit=5m \
+  -inactive-age=720h \
+  -cleanup-every=6h
+
+Restart=on-failure
+RestartSec=5s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=portmantg
+
+[Install]
+WantedBy=multi-user.target

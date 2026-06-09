@@ -1,0 +1,30 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: Build linux/amd64
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -ldflags="-s -w" -o portmantg ./cmd/portmantg/
+          ls -lh portmantg
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: portmantg-linux-amd64
+          path: portmantg
+          retention-days: 7
