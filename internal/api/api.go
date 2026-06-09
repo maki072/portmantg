@@ -6,9 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/maki072/portmantg/internal/db"
@@ -18,32 +22,106 @@ import (
 
 // Config holds API configuration.
 type Config struct {
-	PortStart    int
-	PortEnd      int
-	SNIDomain    string // domain embedded in TLS secret for SNI camouflage
-	ProxyHost    string // public hostname used in proxy links
-	RateLimit    time.Duration
-	InactiveAge  time.Duration
-	DeviceCookie string
-	AdminUser    string // HTTP basic auth username for /api/admin (empty = no auth)
-	AdminPass    string // HTTP basic auth password for /api/admin
+	PortStart         int
+	PortEnd           int
+	SNIDomain         string // domain embedded in TLS secret for SNI camouflage
+	ProxyHost         string // public hostname used in proxy links
+	RateLimit         time.Duration
+	InactiveAge       time.Duration
+	DeviceCookie      string
+	AdminUser         string // HTTP basic auth username for /api/admin (empty = no auth)
+	AdminPass         string // HTTP basic auth password for /api/admin
+	TurnstileSecret   string // Cloudflare Turnstile secret key (empty = disabled)
+	BruteWindow       time.Duration // brute-force window (default 15m)
+	BruteMaxFails     int           // max failed admin auth attempts before lockout (default 10)
+}
+
+// ── Brute-force limiter ────────────────────────────────────────────────────────
+
+type bruteEntry struct {
+	fails   int
+	blocked time.Time
+	window  time.Time
+}
+
+type bruteLimiter struct {
+	mu      sync.Mutex
+	entries map[string]*bruteEntry
+	window  time.Duration
+	max     int
+}
+
+func newBruteLimiter(window time.Duration, max int) *bruteLimiter {
+	if window <= 0 {
+		window = 15 * time.Minute
+	}
+	if max <= 0 {
+		max = 10
+	}
+	return &bruteLimiter{entries: make(map[string]*bruteEntry), window: window, max: max}
+}
+
+// Check returns true if ip is blocked.
+func (b *bruteLimiter) Check(ip string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	e, ok := b.entries[ip]
+	if !ok {
+		return false
+	}
+	if !e.blocked.IsZero() && time.Now().Before(e.blocked) {
+		return true
+	}
+	if time.Now().After(e.window) {
+		delete(b.entries, ip)
+		return false
+	}
+	return false
+}
+
+// Fail records a failed attempt; returns true if now blocked.
+func (b *bruteLimiter) Fail(ip string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	e, ok := b.entries[ip]
+	if !ok || time.Now().After(e.window) {
+		e = &bruteEntry{window: time.Now().Add(b.window)}
+		b.entries[ip] = e
+	}
+	e.fails++
+	if e.fails >= b.max {
+		e.blocked = time.Now().Add(b.window)
+		return true
+	}
+	return false
+}
+
+// Success clears fail counter for ip.
+func (b *bruteLimiter) Success(ip string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.entries, ip)
 }
 
 // Handler is the main HTTP handler.
 type Handler struct {
-	db       *db.DB
-	telemt   *telemt.Client
-	firewall *firewall.Manager
-	cfg      Config
+	db         *db.DB
+	telemt     *telemt.Client
+	firewall   *firewall.Manager
+	cfg        Config
+	adminBrute *bruteLimiter // brute-force protection for /api/admin
+	proxyBrute *bruteLimiter // brute-force protection for /api/proxy (turnstile fails)
 }
 
 // New creates a new Handler.
 func New(database *db.DB, tm *telemt.Client, fw *firewall.Manager, cfg Config) *Handler {
 	return &Handler{
-		db:       database,
-		telemt:   tm,
-		firewall: fw,
-		cfg:      cfg,
+		db:         database,
+		telemt:     tm,
+		firewall:   fw,
+		cfg:        cfg,
+		adminBrute: newBruteLimiter(cfg.BruteWindow, cfg.BruteMaxFails),
+		proxyBrute: newBruteLimiter(cfg.BruteWindow, cfg.BruteMaxFails),
 	}
 }
 
@@ -85,8 +163,9 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deviceID := h.getOrSetDeviceID(w, r)
+	clientIP := realIP(r)
 
-	// Check if device already has a proxy.
+	// Check if device already has a proxy (no captcha needed for returning users).
 	user, err := h.db.FindByDeviceID(deviceID)
 	if err != nil {
 		log.Printf("[api] FindByDeviceID: %v", err)
@@ -95,7 +174,7 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	if user != nil {
 		// Touch last seen and return existing proxy.
-		_ = h.db.TouchLastSeen(user.Port, realIP(r))
+		_ = h.db.TouchLastSeen(user.Port, clientIP)
 		jsonResponse(w, http.StatusOK, proxyResponse{
 			Port:    user.Port,
 			Secret:  user.Secret,
@@ -104,6 +183,27 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	// Brute-force lockout check.
+	if h.proxyBrute.Check(clientIP) {
+		jsonResponse(w, http.StatusTooManyRequests, errorResponse{
+			Error:      "too many requests, try later",
+			RetryAfter: int(h.cfg.BruteWindow.Seconds()),
+		})
+		return
+	}
+
+	// Turnstile captcha verification (only for new proxy creation).
+	token := r.URL.Query().Get("cf-turnstile-response")
+	if token == "" {
+		token = r.Header.Get("X-Turnstile-Response")
+	}
+	if !h.verifyTurnstile(token, clientIP) {
+		h.proxyBrute.Fail(clientIP)
+		jsonResponse(w, http.StatusForbidden, errorResponse{Error: "captcha required"})
+		return
+	}
+	h.proxyBrute.Success(clientIP)
 
 	// Rate limit check (only for new proxy requests).
 	last, err := h.db.GetRateLimit(deviceID)
@@ -291,19 +391,68 @@ func realIP(r *http.Request) string {
 	return ip
 }
 
-// basicAuth wraps a handler with HTTP basic auth if AdminUser is configured.
+// AdminMiddleware wraps any http.Handler with basicAuth + brute-force protection.
+// Used externally to protect sub-handlers (e.g. rst.Monitor routes).
+func (h *Handler) AdminMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.basicAuth(next.ServeHTTP)(w, r)
+	})
+}
+
+// basicAuth wraps a handler with HTTP basic auth + brute-force protection.
 func (h *Handler) basicAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if h.cfg.AdminUser != "" {
-			user, pass, ok := r.BasicAuth()
-			if !ok || user != h.cfg.AdminUser || pass != h.cfg.AdminPass {
-				w.Header().Set("WWW-Authenticate", `Basic realm="portmantg admin"`)
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
+		if h.cfg.AdminUser == "" {
+			next(w, r)
+			return
 		}
+		ip := realIP(r)
+		if h.adminBrute.Check(ip) {
+			http.Error(w, "Too many failed attempts. Try again later.", http.StatusTooManyRequests)
+			return
+		}
+		user, pass, ok := r.BasicAuth()
+		if !ok || user != h.cfg.AdminUser || pass != h.cfg.AdminPass {
+			if h.adminBrute.Fail(ip) {
+				log.Printf("[admin] brute-force lockout: ip=%s", ip)
+			}
+			w.Header().Set("WWW-Authenticate", `Basic realm="portmantg admin"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		h.adminBrute.Success(ip)
 		next(w, r)
 	}
+}
+
+// verifyTurnstile validates a CF Turnstile token. Returns true if valid or if turnstile is disabled.
+func (h *Handler) verifyTurnstile(token, ip string) bool {
+	if h.cfg.TurnstileSecret == "" {
+		return true
+	}
+	if token == "" {
+		return false
+	}
+	resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify",
+		url.Values{
+			"secret":   {h.cfg.TurnstileSecret},
+			"response": {token},
+			"remoteip": {ip},
+		},
+	)
+	if err != nil {
+		log.Printf("[turnstile] verify error: %v", err)
+		return false
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	var result struct {
+		Success bool `json:"success"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return false
+	}
+	return result.Success
 }
 
 type adminUserRow struct {

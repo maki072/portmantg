@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MTProxy для Telegram</title>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -151,6 +152,21 @@
     }
     footer a { color: #4a5568; text-decoration: none; }
     footer a:hover { color: #718096; }
+    .admin-link {
+      margin-top: 8px;
+      display: block;
+      font-size: 11px;
+      color: #2d3748;
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .admin-link:hover { color: #4a5568; }
+    /* Hide turnstile widget visually until needed */
+    #turnstile-wrap {
+      margin-top: 16px;
+      display: none;
+      justify-content: center;
+    }
   </style>
 </head>
 <body>
@@ -160,10 +176,20 @@
 
     <!-- Initial state: no proxy yet -->
     <div id="state-init">
-      <button class="btn btn-primary" id="btn-get" onclick="getProxy()">
+      <button class="btn btn-primary" id="btn-get" onclick="requestProxy()">
         <span class="spinner" id="spinner-get"></span>
         <span id="btn-get-text">Получить прокси</span>
       </button>
+      <!-- CF Turnstile widget (shown on click) -->
+      <div id="turnstile-wrap">
+        <div class="cf-turnstile"
+             data-sitekey="0x4AAAAAADhVjA1F1XX4zay1"
+             data-theme="dark"
+             data-callback="onTurnstileSuccess"
+             data-error-callback="onTurnstileError"
+             data-size="normal">
+        </div>
+      </div>
       <div class="msg" id="msg-init"></div>
     </div>
 
@@ -215,9 +241,16 @@
 
   <footer>
     <a href="https://github.com/maki072/portmantg" target="_blank">GitHub</a>
+    <a class="admin-link" href="/admin.html">·</a>
   </footer>
 
   <script>
+    // Check if turnstile is enabled by trying /api/proxy without token first.
+    // If response is 403 captcha required → show turnstile widget.
+    // If response is 200/201/429 → turnstile is disabled on server.
+    let turnstileEnabled = null; // null = unknown, true/false
+    let pendingToken = null;
+
     async function checkStatus() {
       try {
         const r = await fetch('/api/status');
@@ -226,7 +259,42 @@
       } catch (e) { /* ignore */ }
     }
 
-    async function getProxy() {
+    // Called when user clicks the button.
+    async function requestProxy() {
+      const msg = document.getElementById('msg-init');
+      msg.style.display = 'none';
+
+      // If we already know turnstile is needed, show the widget.
+      if (turnstileEnabled === true) {
+        showTurnstile();
+        return;
+      }
+
+      // Try without token (works if turnstile is disabled, or returning user).
+      await getProxy(null);
+    }
+
+    function showTurnstile() {
+      const wrap = document.getElementById('turnstile-wrap');
+      wrap.style.display = 'flex';
+      // Reset widget so user can solve it again.
+      if (typeof turnstile !== 'undefined') {
+        turnstile.reset();
+      }
+    }
+
+    // CF Turnstile callback — called when user solves the challenge.
+    async function onTurnstileSuccess(token) {
+      document.getElementById('turnstile-wrap').style.display = 'none';
+      await getProxy(token);
+    }
+
+    function onTurnstileError() {
+      const msg = document.getElementById('msg-init');
+      showMsg(msg, 'error', 'Ошибка капчи. Попробуйте ещё раз.');
+    }
+
+    async function getProxy(cfToken) {
       const btn = document.getElementById('btn-get');
       const txt = document.getElementById('btn-get-text');
       const spin = document.getElementById('spinner-get');
@@ -235,14 +303,21 @@
       btn.disabled = true;
       spin.style.display = 'inline-block';
       txt.textContent = 'Создаём прокси…';
-      msg.style.display = 'none';
 
       try {
-        const r = await fetch('/api/proxy');
+        const url = cfToken ? `/api/proxy?cf-turnstile-response=${encodeURIComponent(cfToken)}` : '/api/proxy';
+        const r = await fetch(url);
         const d = await r.json();
 
         if (r.status === 200 || r.status === 201) {
+          turnstileEnabled = false;
           showProxy(d);
+          return;
+        }
+        if (r.status === 403 && d.error === 'captcha required') {
+          // Server requires turnstile — show the widget.
+          turnstileEnabled = true;
+          showTurnstile();
           return;
         }
         if (r.status === 429) {
